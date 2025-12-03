@@ -1,22 +1,38 @@
 from mcp.server.fastmcp import FastMCP
 import fitz  # PyMuPDF
 import os
+import requests # Necesitamos esta librería para subir el archivo
 
-# Inicializamos el servidor MCP
-mcp = FastMCP("PDF Cleaner Wuolah")
+# Inicializamos el servidor
+mcp = FastMCP("PDF Cleaner Wuolah con Enlace")
+
+def subir_a_transfersh(filepath):
+    """Sube el archivo a transfer.sh y devuelve el enlace de descarga."""
+    filename = os.path.basename(filepath)
+    try:
+        with open(filepath, 'rb') as f:
+            # Transfer.sh permite subir archivos con una simple petición PUT
+            response = requests.put(f'https://transfer.sh/{filename}', data=f)
+            
+        if response.status_code == 200:
+            # La respuesta es el enlace directo de descarga
+            return response.text.strip()
+        else:
+            return None
+    except Exception as e:
+        print(f"Error subiendo archivo: {e}")
+        return None
 
 @mcp.tool()
 def limpiar_pdf(input_path: str, output_path: str) -> str:
     """
-    Limpia un PDF eliminando publicidad y páginas horizontales. 
-    Ideal para documentos de Wuolah.
+    Limpia un PDF y devuelve un ENLACE DE DESCARGA.
     
     Args:
-        input_path: Ruta completa al archivo PDF original.
-        output_path: Ruta completa donde se guardará el PDF limpio.
+        input_path: Ruta al archivo PDF original.
+        output_path: Ruta donde guardar el temporal (ej: "limpio.pdf").
     """
     
-    # --- Tu lógica original comienza aquí (adaptada ligeramente para retorno) ---
     if not os.path.exists(input_path):
         return f"Error: El archivo no existe: '{input_path}'"
 
@@ -25,28 +41,24 @@ def limpiar_pdf(input_path: str, output_path: str) -> str:
         paginas_validas_indices = []
         paginas_eliminadas_count = 0
         
-        # FASE 1: Filtrado
+        # --- FASE 1: Filtrado (Tu lógica original) ---
         for page_num, page in enumerate(doc_original):
             page_dims = page.rect
             area_pagina = page_dims.width * page_dims.height
             
-            # 1. Filtro: Orientación Horizontal
-            if page_dims.width > page_dims.height:
+            if page_dims.width > page_dims.height: # Horizontal
                 paginas_eliminadas_count += 1
                 continue
             
-            # 2. Filtro: Saturación de Imágenes
             image_list = page.get_images(full=True)
             area_imagenes = 0
             for img in image_list:
                 try:
                     bbox = page.get_image_bbox(img)
                     area_imagenes += bbox.width * bbox.height
-                except ValueError:
-                    pass
+                except ValueError: pass
             
-            porcentaje_imagen = area_imagenes / area_pagina if area_pagina > 0 else 0
-            if porcentaje_imagen > 0.85:
+            if (area_imagenes / area_pagina if area_pagina > 0 else 0) > 0.85: # Publicidad
                 paginas_eliminadas_count += 1
                 continue
             
@@ -54,75 +66,52 @@ def limpiar_pdf(input_path: str, output_path: str) -> str:
 
         if not paginas_validas_indices:
             doc_original.close()
-            return "Error: No quedaron páginas válidas tras el filtrado."
+            return "Error: No quedaron páginas válidas."
 
-        # Configuración del tamaño maestro
         first_page = doc_original[paginas_validas_indices[0]]
         MASTER_WIDTH = first_page.rect.width
         MASTER_HEIGHT = first_page.rect.height
-        
         doc_final = fitz.open()
 
-        # FASE 2: Reconstrucción
+        # --- FASE 2: Reconstrucción (Tu lógica original) ---
         for idx in paginas_validas_indices:
             page = doc_original[idx]
             page_dims = page.rect
-            
-            y_top = 0
-            y_bottom = page_dims.height
-            x_left = 0
-            x_right = page_dims.width
+            y_top, y_bottom = 0, page_dims.height
+            x_left, x_right = 0, page_dims.width
 
-            # Detectar Banners (Lógica simplificada para brevedad, usando tu código base)
             image_list = page.get_images(full=True)
             for img_info in image_list:
-                try:
-                    bbox = page.get_image_bbox(img_info)
-                except ValueError:
-                    continue
-
-                w_img = bbox.width
-                h_img = bbox.height
+                try: bbox = page.get_image_bbox(img_info)
+                except ValueError: continue
                 
-                # Banner Horizontal
-                if w_img > page_dims.width * 0.8:
-                    if bbox.y1 < page_dims.height * 0.25:
-                        if bbox.y1 > y_top: y_top = bbox.y1 + 5
-                    elif bbox.y0 > page_dims.height * 0.75:
-                        if bbox.y0 < y_bottom: y_bottom = bbox.y0 - 5
-                # Banner Vertical
-                elif h_img > page_dims.height * 0.6:
-                    if bbox.x1 < page_dims.width * 0.25:
-                         if bbox.x1 > x_left: x_left = bbox.x1
-                    elif bbox.x0 > page_dims.width * 0.75:
-                        if bbox.x0 < x_right: x_right = bbox.x0
+                # Detección de banners (Simplificada para el ejemplo)
+                if bbox.width > page_dims.width * 0.8:
+                    if bbox.y1 < page_dims.height * 0.25 and bbox.y1 > y_top: y_top = bbox.y1 + 5
+                    elif bbox.y0 > page_dims.height * 0.75 and bbox.y0 < y_bottom: y_bottom = bbox.y0 - 5
 
-            # SAFETY CHECK
             ancho_final = x_right - x_left
             alto_final = y_bottom - y_top
-            
-            if ancho_final < 200 or alto_final < 200:
-                rect_recorte = page_dims
-            else:
-                rect_recorte = fitz.Rect(x_left, y_top, x_right, y_bottom)
+            rect_recorte = page_dims if (ancho_final < 200 or alto_final < 200) else fitz.Rect(x_left, y_top, x_right, y_bottom)
 
             nueva_pagina = doc_final.new_page(width=MASTER_WIDTH, height=MASTER_HEIGHT)
-            nueva_pagina.show_pdf_page(
-                nueva_pagina.rect,
-                doc_original,
-                idx,
-                clip=rect_recorte
-            )
+            nueva_pagina.show_pdf_page(nueva_pagina.rect, doc_original, idx, clip=rect_recorte)
 
+        # Guardado local temporal
         doc_final.save(output_path, garbage=0, deflate=True)
         doc_original.close()
         doc_final.close()
         
-        return f"¡Éxito! PDF limpio guardado en: {output_path}. Se eliminaron {paginas_eliminadas_count} páginas."
+        # --- NUEVA FASE: SUBIDA A LA NUBE ---
+        link_descarga = subir_a_transfersh(output_path)
+        
+        if link_descarga:
+            return f" ¡Éxito! PDF limpiado ({paginas_eliminadas_count} páginas eliminadas).\n\n⬇️ DESCÁRGALO AQUÍ: {link_descarga}"
+        else:
+            return f" El PDF se limpió y está en '{output_path}' (en el disco del servidor), pero falló la subida para generar el link."
 
     except Exception as e:
-        return f"Error crítico al procesar el PDF: {str(e)}"
+        return f"Error crítico: {str(e)}"
 
-# Esto permite ejecutar el servidor
 if __name__ == "__main__":
     mcp.run()
