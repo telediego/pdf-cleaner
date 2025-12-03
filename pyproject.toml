@@ -1,19 +1,19 @@
 [project]
 name = "mcp-pdf-cleaner"
-version = "0.1.0"
+version = "0.1.1"
 description = "Servidor MCP para limpiar PDFs de Wuolah eliminando publicidad y ajustando tamaños."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp",
-    "pymupdf,
-    requests"
+    "pymupdf",
+    "requests"
 ]
 
 [project.scripts]
-mcp-pdf-cleaner = "server:mcp.run"
+# IMPORTANTE: Apuntamos a la función main() que definimos en server.py
+mcp-pdf-cleaner = "server:main"
 
 [build-system]
 requires = ["hatchling"]
-
 build-backend = "hatchling.build"
